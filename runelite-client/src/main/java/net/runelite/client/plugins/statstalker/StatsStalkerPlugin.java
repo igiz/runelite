@@ -3,6 +3,7 @@ package net.runelite.client.plugins.statstalker;
 import com.google.inject.Provides;
 import net.runelite.api.Client;
 import net.runelite.api.events.ConfigChanged;
+import net.runelite.api.events.ExperienceChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -18,6 +19,8 @@ import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Future;
 
 @PluginDescriptor(
         name = "Stats Stalker",
@@ -61,8 +64,6 @@ public class StatsStalkerPlugin extends Plugin {
 
     private HiscoreResult result;
 
-    private boolean visible;
-
     private Instant lastRefresh;
 
     @Inject
@@ -99,7 +100,7 @@ public class StatsStalkerPlugin extends Plugin {
     @Subscribe
     private void onConfigChanged(ConfigChanged event)
     {
-        visible = refreshStatistics();
+        reload();
     }
 
     public HashMap<net.runelite.api.Skill,LevelTuple> getSkillsGroup(SkillsGroup skillsGroup){
@@ -119,7 +120,7 @@ public class StatsStalkerPlugin extends Plugin {
     }
 
     public boolean Visible(){
-        return visible;
+        return result != null;
     }
 
     @Override
@@ -151,48 +152,66 @@ public class StatsStalkerPlugin extends Plugin {
     }
 
     @Subscribe
-    public void onGameTick(GameTick tick)
-    {
+    public void onExperienceChanged(ExperienceChanged event) {
+        resetComparison();
+    }
+
+    @Subscribe
+    public void onGameTick(GameTick tick) {
         Duration timeSinceInfobox = Duration.between(lastRefresh, Instant.now());
         Duration statTimeout = Duration.ofMinutes(config.refreshInterval());
         if (timeSinceInfobox.compareTo(statTimeout) >= 0) {
-            visible = refreshStatistics();
+            reload();
         }
     }
 
-    private boolean refreshStatistics(){
-        if(!config.playerName().isEmpty()) {
+    private void reload() {
+
+        CompletableFuture.supplyAsync(() -> {
             try {
-                result = hiscoreClient.lookup(config.playerName(), HiscoreEndpoint.NORMAL);
-                if(result != null){
-                    lowerSkills.clear();
-                    greaterSkills.clear();
-                    equalSkills.clear();
-
-                    net.runelite.api.Skill[] allSkills = ArrayUtils.removeElement(net.runelite.api.Skill.values(), net.runelite.api.Skill.OVERALL);
-                    for (int i = 0; i < allSkills.length; i++) {
-                        net.runelite.api.Skill current = allSkills[i];
-                        HiscoreSkill highScoreSkill = HiscoreSkill.valueOf(current.getName().toUpperCase());
-                        Skill opponentsSkill = result.getSkill(highScoreSkill);
-                        int currentLevel = client.getRealSkillLevel(current);
-                        int opponentLevel = opponentsSkill.getLevel();
-                        int xpDifference = Math.toIntExact(Math.abs(opponentsSkill.getExperience() - client.getSkillExperience(current)));
-                        LevelTuple levelTuple = new LevelTuple(currentLevel, opponentLevel, xpDifference);
-
-                        if(currentLevel > opponentLevel){
-                            greaterSkills.put(current, levelTuple);
-                        } else if (currentLevel < opponentLevel){
-                            lowerSkills.put(current, levelTuple);
-                        } else {
-                            equalSkills.put(current, levelTuple);
-                        }
-                    }
-                    lastRefresh = Instant.now();
-                    return true;
-                }
-            } catch (IOException ex) {
+                HiscoreResult hiScore = hiscoreClient.lookup(config.playerName(), HiscoreEndpoint.NORMAL);
+                return hiScore;
+            } catch (IOException e) {
+                return null;
             }
+        }).thenAccept(hiscoreResult -> setResult(hiscoreResult))
+                .exceptionally(throwable ->
+                        {
+                            throwable.printStackTrace();
+                            return null;
+                        })
+                .thenRun(() -> resetComparison());
+    }
+
+    private synchronized void setResult(HiscoreResult result){
+        this.result = result;
+    }
+
+    private synchronized void resetComparison() {
+        if (result != null) {
+            lowerSkills.clear();
+            greaterSkills.clear();
+            equalSkills.clear();
+
+            net.runelite.api.Skill[] allSkills = ArrayUtils.removeElement(net.runelite.api.Skill.values(), net.runelite.api.Skill.OVERALL);
+            for (int i = 0; i < allSkills.length; i++) {
+                net.runelite.api.Skill current = allSkills[i];
+                HiscoreSkill highScoreSkill = HiscoreSkill.valueOf(current.getName().toUpperCase());
+                Skill opponentsSkill = result.getSkill(highScoreSkill);
+                int currentLevel = client.getRealSkillLevel(current);
+                int opponentLevel = opponentsSkill.getLevel();
+                int xpDifference = Math.toIntExact(Math.abs(opponentsSkill.getExperience() - client.getSkillExperience(current)));
+                LevelTuple levelTuple = new LevelTuple(currentLevel, opponentLevel, xpDifference);
+
+                if (currentLevel > opponentLevel) {
+                    greaterSkills.put(current, levelTuple);
+                } else if (currentLevel < opponentLevel) {
+                    lowerSkills.put(current, levelTuple);
+                } else {
+                    equalSkills.put(current, levelTuple);
+                }
+            }
+            lastRefresh = Instant.now();
         }
-        return false;
     }
 }

@@ -57,7 +57,9 @@ public class StatsStalkerOverlay extends Overlay {
     @Override
     public Dimension render(Graphics2D graphics) {
 
-        if(!plugin.Visible()){
+        HashMap<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> data = dataProvider.getData();
+
+        if(!plugin.Visible() || data.isEmpty()){
             return null;
         }
 
@@ -69,10 +71,8 @@ public class StatsStalkerOverlay extends Overlay {
                     .build());
         }
 
-        HashMap<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> data = dataProvider.getData();
         String[] tooltips = new String[data.size()+1];
         tooltips[0]= "XP Differences:";
-
 
         int i=1;
         for (Map.Entry<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> entry : data.entrySet()) {

@@ -19,7 +19,7 @@ public interface StatStalkerConfig extends Config {
     @ConfigItem(
             position = 2,
             keyName = "refreshInterval",
-            name = "Refresh Interval (minutes)",
+            name = "Refresh (minutes)",
             description = "Set the time until next refresh"
     )
     default int refreshInterval()
