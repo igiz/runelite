@@ -1,8 +1,6 @@
 package net.runelite.client.plugins.statstalker;
 
 import net.runelite.api.Client;
-import net.runelite.api.InventoryID;
-import net.runelite.api.Skill;
 import net.runelite.client.ui.overlay.Overlay;
 import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.OverlayPriority;
@@ -19,27 +17,30 @@ import java.util.Map;
 
 public class StatsStalkerOverlay extends Overlay {
 
-    private final StatStalkerConfig config;
-    private final StatsStalkerPlugin plugin;
     private final Client client;
-
     private final TooltipManager tooltipManager;
     private final PanelComponent panelComponent = new PanelComponent();
+    private OverlayGroup group;
+    private StatsStalkerPlugin.Toggle visibilityToggle;
     private String title;
     private Color color;
 
-    private StatsStalkerPlugin.DataProvider<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> dataProvider;
+    private StatsStalkerPlugin.DataProvider<String, StatsStalkerPlugin.LevelTuple> dataProvider;
 
     @Inject
-    private StatsStalkerOverlay(TooltipManager tooltipManager, StatsStalkerPlugin plugin, StatStalkerConfig config, Client client) {
+    private StatsStalkerOverlay(TooltipManager tooltipManager, StatsStalkerPlugin plugin, Client client) {
         setPosition(OverlayPosition.TOP_LEFT);
         setPriority(OverlayPriority.NONE);
         this.tooltipManager = tooltipManager;
-        this.plugin = plugin;
-        this.config = config;
         this.client = client;
         this.title = "";
         this.color = Color.WHITE;
+        this.visibilityToggle = () -> !plugin.Visible();
+    }
+
+    public void setGroup(OverlayGroup group){
+        this.group = group;
+        this.group.add(this);
     }
 
     public void setTitle(String title){
@@ -50,16 +51,20 @@ public class StatsStalkerOverlay extends Overlay {
         this.color = color;
     }
 
-    public void setDataProvider(StatsStalkerPlugin.DataProvider<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> dataProvider){
+    public void setDataProvider(StatsStalkerPlugin.DataProvider<String, StatsStalkerPlugin.LevelTuple> dataProvider){
         this.dataProvider = dataProvider;
+    }
+
+    public void setVisibilityToggle(StatsStalkerPlugin.Toggle visibilityToggle){
+        this.visibilityToggle = visibilityToggle;
     }
 
     @Override
     public Dimension render(Graphics2D graphics) {
 
-        HashMap<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> data = dataProvider.getData();
+        HashMap<String, StatsStalkerPlugin.LevelTuple> data = dataProvider.getData();
 
-        if(!plugin.Visible() || data.isEmpty()){
+        if(!visibilityToggle.isToggled() || data.isEmpty()){
             return null;
         }
 
@@ -71,33 +76,42 @@ public class StatsStalkerOverlay extends Overlay {
                     .build());
         }
 
-        String[] tooltips = new String[data.size()+1];
-        tooltips[0]= "XP Differences:";
-
-        int i=1;
-        for (Map.Entry<net.runelite.api.Skill, StatsStalkerPlugin.LevelTuple> entry : data.entrySet()) {
-            net.runelite.api.Skill skill = entry.getKey();
+        String[] tooltips = new String[data.size()+2];
+        tooltips[0]= "        XP Differences";
+        tooltips[1]= "--------------------------";
+        int i=2;
+        for (Map.Entry<String, StatsStalkerPlugin.LevelTuple> entry : data.entrySet()) {
+            String skill = entry.getKey();
             StatsStalkerPlugin.LevelTuple value = entry.getValue();
 
             panelComponent.getChildren().add(LineComponent.builder()
-                    .left(skill.getName())
+                    .left(skill)
                     .right(value.currentLevel + " | " + value.opponentLevel)
                     .rightColor(color)
                     .build());
 
-            tooltips[i] = skill.getName()+" : " + NumberFormat.getInstance().format(value.xpDifference);
+            tooltips[i] = skill+" : " + NumberFormat.getInstance().format(value.xpDifference);
             i++;
         }
 
-        final Rectangle intersectionRectangle = new Rectangle(panelComponent.getBounds());
-        final Point mouse = new Point(client.getMouseCanvasPosition().getX(), client.getMouseCanvasPosition().getY());
+        Dimension result = panelComponent.render(graphics);
 
-        if (intersectionRectangle.contains(mouse)){
+        if (showTooltips()){
             final String tooltip = String.join("</br>", tooltips);
             tooltipManager.add(new Tooltip(tooltip));
         }
 
-        return panelComponent.render(graphics);
+        return result;
+    }
+
+    private boolean showTooltips(){
+        if(group != null){
+            return group.showTooltips(this);
+        } else {
+            final Rectangle intersectionRectangle = new Rectangle(panelComponent.getBounds());
+            final Point mouse = new Point(client.getMouseCanvasPosition().getX(),client.getMouseCanvasPosition().getY());
+            return intersectionRectangle.contains(mouse);
+        }
     }
 
 }
