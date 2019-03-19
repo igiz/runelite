@@ -9,22 +9,20 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
-import net.runelite.client.plugins.interfaces.Repository;
-import net.runelite.client.plugins.statstalker.snapshots.HiscoreResultSnapshot;
-import net.runelite.client.plugins.statstalker.snapshots.HiscoreSnapshotManager;
-import net.runelite.client.plugins.statstalker.snapshots.JsonFileSnapshotRepository;
+import net.runelite.client.plugins.statstalker.modules.Module;
+import net.runelite.client.plugins.statstalker.modules.comparison.HiScoreComparisonModule;
+import net.runelite.client.plugins.statstalker.modules.snapshots.HiscoreSnapshotModule;
 import net.runelite.client.ui.overlay.OverlayManager;
-import net.runelite.http.api.hiscore.*;
-import org.apache.commons.lang3.ArrayUtils;
-
+import net.runelite.http.api.hiscore.HiscoreClient;
+import net.runelite.http.api.hiscore.HiscoreEndpoint;
+import net.runelite.http.api.hiscore.HiscoreResult;
 import javax.inject.Inject;
-import java.awt.*;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Date;
-import java.util.HashMap;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 @PluginDescriptor(
@@ -34,51 +32,18 @@ import java.util.concurrent.CompletableFuture;
 )
 public class StatsStalkerPlugin extends Plugin {
 
-    class LevelTuple {
-
-        public final int currentLevel;
-
-        public final int opponentLevel;
-
-        public final int xpDifference;
-
-        public LevelTuple(int currentLevel, int opponentLevel, int xpDifference){
-            this.currentLevel = currentLevel;
-            this.opponentLevel = opponentLevel;
-            this.xpDifference = xpDifference;
-        }
-    }
-
-    enum SkillsGroup {
-        EQUAL,
-        LOWER,
-        HIGHER,
-        CHANGED_SINCE_SNAPSHOT
-    }
-
-    interface DataProvider<K,V> {
-        HashMap<K,V> getData();
-    }
-
-    interface Toggle{
-        boolean isToggled();
-    }
-
-    private final HashMap<String,LevelTuple> greaterSkills;
-
-    private final HashMap<String,LevelTuple> lowerSkills;
-
-    private final HashMap<String,LevelTuple> equalSkills;
-
-    private final HashMap<String,LevelTuple> changedSinceSnapshot;
-
     private final HiscoreClient hiscoreClient = new HiscoreClient();
 
-    private HiscoreResult result;
+    private final List<Module> modules = new ArrayList<>(
+            new ArrayList(Arrays.asList(new Module[]{
+                    new HiScoreComparisonModule(),
+                    new HiscoreSnapshotModule()
+            }))
+    );
 
-    private Instant lastRefresh;
+    private final ArrayList<StatsStalkerOverlay> overlays = new ArrayList<>();
 
-    private HiscoreSnapshotManager snapshotManager;
+    private Instant lastReload = Instant.MIN;
 
     @Inject
     private StatStalkerConfig config;
@@ -87,28 +52,7 @@ public class StatsStalkerPlugin extends Plugin {
     private Client client;
 
     @Inject
-    private StatsStalkerOverlay higherOverlay;
-
-    @Inject
-    private StatsStalkerOverlay lowerOverlay;
-
-    @Inject
-    private StatsStalkerOverlay equalOverlay;
-
-    @Inject
-    private StatsStalkerOverlay changedSinceOverlay;
-
-    @Inject
     private OverlayManager overlayManager;
-
-    public StatsStalkerPlugin(){
-        this.greaterSkills = new HashMap<>();
-        this.lowerSkills = new HashMap<>();
-        this.equalSkills = new HashMap<>();
-        this.changedSinceSnapshot = new HashMap<>();
-
-        this.lastRefresh = Instant.MIN;
-    }
 
     @Provides
     StatStalkerConfig getConfig(ConfigManager configManager)
@@ -119,86 +63,46 @@ public class StatsStalkerPlugin extends Plugin {
     @Subscribe
     private void onConfigChanged(ConfigChanged event)
     {
-        snapshotManager.setPlayer(config.playerName());
-        reload();
-    }
-
-    public HashMap<String,LevelTuple> getSkillsGroup(SkillsGroup skillsGroup){
-        HashMap<String,LevelTuple> result = null;
-        switch(skillsGroup){
-            case EQUAL:
-                result = equalSkills;
-                break;
-            case HIGHER:
-                result = greaterSkills;
-                break;
-            case LOWER:
-                result = lowerSkills;
-                break;
-            case CHANGED_SINCE_SNAPSHOT:
-                result = changedSinceSnapshot;
-                break;
+        for(Module module : modules){
+            module.configChanged(config);
         }
-        return result;
-    }
 
-    public boolean Visible(){
-        return result != null;
+        reload();
     }
 
     @Override
     protected void startUp() throws Exception
     {
         OverlayGroup group = new OverlayGroup(client);
+        ArrayList<StatsOverlayViewModel> viewModels = new ArrayList<>();
 
-        higherOverlay.setGroup(group);
-        lowerOverlay.setGroup(group);
-        equalOverlay.setGroup(group);
-        changedSinceOverlay.setGroup(group);
+        for(Module module : modules){
+            viewModels.addAll(module.load(config,group));
+        }
 
-        higherOverlay.setColor(Color.GREEN);
-        lowerOverlay.setColor(Color.RED);
-        equalOverlay.setColor(Color.ORANGE);
-        changedSinceOverlay.setColor(Color.getHSBColor(329,98,37));
-
-        higherOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.HIGHER));
-        lowerOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.LOWER));
-        equalOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.EQUAL));
-        changedSinceOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.CHANGED_SINCE_SNAPSHOT));
-
-        higherOverlay.setVisibilityToggle(() -> config.showHigher());
-        lowerOverlay.setVisibilityToggle(() -> config.showLower());
-        equalOverlay.setVisibilityToggle(() -> config.showEqual());
-        changedSinceOverlay.setVisibilityToggle(() -> config.showChanged());
-
-        higherOverlay.setTitle("Higher Stats:");
-        lowerOverlay.setTitle("Lower Stats:");
-        equalOverlay.setTitle("Equal Stats:");
-
-        overlayManager.add(higherOverlay);
-        overlayManager.add(lowerOverlay);
-        overlayManager.add(equalOverlay);
-        overlayManager.add(changedSinceOverlay);
-        snapshotManager = new HiscoreSnapshotManager();
+        for (StatsOverlayViewModel viewModel : viewModels) {
+            StatsStalkerOverlay overlay = new StatsStalkerOverlay(viewModel);
+            overlays.add(overlay);
+            overlayManager.add(overlay);
+        }
     }
 
     @Override
     protected void shutDown() throws Exception
     {
-        overlayManager.remove(higherOverlay);
-        overlayManager.remove(lowerOverlay);
-        overlayManager.remove(equalOverlay);
-        overlayManager.remove(changedSinceOverlay);
+        for (StatsStalkerOverlay overlay : overlays) {
+            overlayManager.remove(overlay);
+        }
     }
 
     @Subscribe
     public void onExperienceChanged(ExperienceChanged event) {
-        resetComparison();
+        refresh();
     }
 
     @Subscribe
     public void onGameTick(GameTick tick) {
-        Duration timeSinceInfobox = Duration.between(lastRefresh, Instant.now());
+        Duration timeSinceInfobox = Duration.between(lastReload, Instant.now());
         Duration statTimeout = Duration.ofMinutes(config.refreshInterval());
         if (timeSinceInfobox.compareTo(statTimeout) >= 0) {
             reload();
@@ -214,69 +118,28 @@ public class StatsStalkerPlugin extends Plugin {
             } catch (IOException e) {
                 return null;
             }
-        }).thenAccept(hiscoreResult -> setResult(hiscoreResult))
+        })
+                .thenAccept(hiscoreResult -> setResult(hiscoreResult))
                 .exceptionally(throwable ->
                         {
                             throwable.printStackTrace();
                             return null;
                         })
-                .thenRun(() -> resetComparison());
+                .thenRun(() -> {
+                    lastReload = Instant.now();
+                    refresh();
+                });
     }
 
     private synchronized void setResult(HiscoreResult result){
-        this.result = result;
-        snapshotManager.setResult(result);
-        calculateChanged();
-    }
-
-    private synchronized void resetComparison() {
-        if (result != null) {
-            lowerSkills.clear();
-            greaterSkills.clear();
-            equalSkills.clear();
-
-            net.runelite.api.Skill[] allSkills = ArrayUtils.removeElement(net.runelite.api.Skill.values(), net.runelite.api.Skill.OVERALL);
-            for (int i = 0; i < allSkills.length; i++) {
-                net.runelite.api.Skill current = allSkills[i];
-                HiscoreSkill highScoreSkill = HiscoreSkill.valueOf(current.getName().toUpperCase());
-                Skill opponentsSkill = result.getSkill(highScoreSkill);
-                int currentLevel = client.getRealSkillLevel(current);
-                int opponentLevel = opponentsSkill.getLevel();
-                int xpDifference = Math.toIntExact(client.getSkillExperience(current) - opponentsSkill.getExperience());
-                LevelTuple levelTuple = new LevelTuple(currentLevel, opponentLevel, xpDifference);
-
-                if (currentLevel > opponentLevel) {
-                    greaterSkills.put(current.getName(), levelTuple);
-                } else if (currentLevel < opponentLevel) {
-                    lowerSkills.put(current.getName(), levelTuple);
-                } else {
-                    equalSkills.put(current.getName(), levelTuple);
-                }
-            }
-
-            result.getSkill(HiscoreSkill.OVERALL);
-            lastRefresh = Instant.now();
+        for(Module module : modules){
+            module.setResult(result);
         }
     }
 
-    private synchronized void calculateChanged() {
-       HiscoreResult snapshot = snapshotManager.getSnapshot();
-        if(snapshot != null){
-            changedSinceSnapshot.clear();
-            HiscoreSkill[] allSkills = HiscoreSkill.values();
-
-            for(int i=0;i<allSkills.length;i++){
-                HiscoreSkill skill = allSkills[i];
-                Skill current = result.getSkill(skill);
-                Skill before = snapshot.getSkill(skill);
-
-                if(current.getExperience() > before.getExperience()){
-                    int xpDifference = Math.toIntExact(current.getExperience() - before.getExperience());
-                    LevelTuple levelTuple = new LevelTuple(before.getLevel(), current.getLevel(), xpDifference);
-                    changedSinceSnapshot.put(skill.getName(), levelTuple);
-                }
-            }
+    private synchronized void refresh() {
+        for(Module module : modules){
+            module.refresh();
         }
     }
-
 }

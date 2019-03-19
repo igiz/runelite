@@ -1,4 +1,4 @@
-package net.runelite.client.plugins.statstalker.snapshots;
+package net.runelite.client.plugins.statstalker.modules.snapshots;
 
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
