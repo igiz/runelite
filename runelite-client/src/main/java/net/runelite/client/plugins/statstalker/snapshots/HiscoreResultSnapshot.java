@@ -1,4 +1,4 @@
-package net.runelite.client.plugins.statstalker;
+package net.runelite.client.plugins.statstalker.snapshots;
 
 import net.runelite.http.api.hiscore.HiscoreResult;
 

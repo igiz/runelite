@@ -1,4 +1,4 @@
-package net.runelite.client.plugins.statstalker;
+package net.runelite.client.plugins.statstalker.snapshots;
 
 import com.google.gson.Gson;
 import com.google.gson.stream.JsonReader;
@@ -6,7 +6,6 @@ import net.runelite.client.RuneLite;
 import net.runelite.client.plugins.interfaces.Repository;
 
 import java.io.*;
-import java.nio.channels.FileLock;
 import java.nio.charset.Charset;
 
 public class JsonFileSnapshotRepository implements Repository<HiscoreResultSnapshot> {

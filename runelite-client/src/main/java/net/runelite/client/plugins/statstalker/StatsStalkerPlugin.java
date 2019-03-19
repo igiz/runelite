@@ -10,6 +10,9 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.interfaces.Repository;
+import net.runelite.client.plugins.statstalker.snapshots.HiscoreResultSnapshot;
+import net.runelite.client.plugins.statstalker.snapshots.HiscoreSnapshotManager;
+import net.runelite.client.plugins.statstalker.snapshots.JsonFileSnapshotRepository;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.http.api.hiscore.*;
 import org.apache.commons.lang3.ArrayUtils;
@@ -73,11 +76,9 @@ public class StatsStalkerPlugin extends Plugin {
 
     private HiscoreResult result;
 
-    private HiscoreResultSnapshot snapshot;
-
     private Instant lastRefresh;
 
-    private Repository<HiscoreResultSnapshot> snapshotRepository;
+    private HiscoreSnapshotManager snapshotManager;
 
     @Inject
     private StatStalkerConfig config;
@@ -118,9 +119,7 @@ public class StatsStalkerPlugin extends Plugin {
     @Subscribe
     private void onConfigChanged(ConfigChanged event)
     {
-        if(snapshot == null || snapshot.getSnapshot().getPlayer() != config.playerName()) {
-            readSnapshot();
-        }
+        snapshotManager.setPlayer(config.playerName());
         reload();
     }
 
@@ -180,9 +179,7 @@ public class StatsStalkerPlugin extends Plugin {
         overlayManager.add(lowerOverlay);
         overlayManager.add(equalOverlay);
         overlayManager.add(changedSinceOverlay);
-
-        snapshotRepository = new JsonFileSnapshotRepository();
-        readSnapshot();
+        snapshotManager = new HiscoreSnapshotManager();
     }
 
     @Override
@@ -228,7 +225,7 @@ public class StatsStalkerPlugin extends Plugin {
 
     private synchronized void setResult(HiscoreResult result){
         this.result = result;
-        takeSnapshot();
+        snapshotManager.setResult(result);
         calculateChanged();
     }
 
@@ -263,6 +260,7 @@ public class StatsStalkerPlugin extends Plugin {
     }
 
     private synchronized void calculateChanged() {
+       HiscoreResult snapshot = snapshotManager.getSnapshot();
         if(snapshot != null){
             changedSinceSnapshot.clear();
             HiscoreSkill[] allSkills = HiscoreSkill.values();
@@ -270,7 +268,7 @@ public class StatsStalkerPlugin extends Plugin {
             for(int i=0;i<allSkills.length;i++){
                 HiscoreSkill skill = allSkills[i];
                 Skill current = result.getSkill(skill);
-                Skill before = snapshot.getSnapshot().getSkill(skill);
+                Skill before = snapshot.getSkill(skill);
 
                 if(current.getExperience() > before.getExperience()){
                     int xpDifference = Math.toIntExact(current.getExperience() - before.getExperience());
@@ -281,28 +279,4 @@ public class StatsStalkerPlugin extends Plugin {
         }
     }
 
-    private void readSnapshot(){
-        changedSinceSnapshot.clear();
-        snapshot = snapshotRepository.get(config.playerName());
-        snapshotChanged();
-    }
-
-    private void snapshotChanged(){
-        if(snapshot != null){
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-            String takenDate = sdf.format(new Date(snapshot.getTimeTaken()*1000L));
-            changedSinceOverlay.setTitle("Since "+ takenDate +"");
-        }
-    }
-
-    private void takeSnapshot(){
-        boolean haveResult = result != null;
-        boolean saveSnapshot = config.takeSnapshots();
-        boolean expired = snapshot == null || snapshot.olderThan(config.snapshotInterval());
-        if(saveSnapshot &&  haveResult && expired){
-            snapshot = new HiscoreResultSnapshot(result);
-            snapshotRepository.save(snapshot, config.playerName());
-            snapshotChanged();
-        }
-    }
 }
