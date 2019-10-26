@@ -60,6 +60,7 @@ import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.client.events.SessionClose;
 import net.runelite.client.events.SessionOpen;
 import net.runelite.api.events.WidgetLoaded;
+import net.runelite.api.events.ScriptCallbackEvent;
 import net.runelite.api.widgets.Widget;
 import net.runelite.api.widgets.WidgetID;
 import net.runelite.api.widgets.WidgetInfo;
@@ -76,7 +77,7 @@ import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
-import net.runelite.client.util.StackFormatter;
+import net.runelite.client.util.QuantityFormatter;
 import net.runelite.client.util.Text;
 import net.runelite.http.api.ge.GrandExchangeClient;
 import net.runelite.http.api.ge.GrandExchangeTrade;
@@ -429,6 +430,49 @@ public class GrandExchangePlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onScriptCallbackEvent(ScriptCallbackEvent event)
+	{
+		if (!event.getEventName().equals("setGETitle") || !config.showTotal())
+		{
+			return;
+		}
+
+		long total = 0;
+		GrandExchangeOffer[] offers = client.getGrandExchangeOffers();
+		for (GrandExchangeOffer offer : offers)
+		{
+			if (offer != null)
+			{
+				total += offer.getPrice() * offer.getTotalQuantity();
+			}
+		}
+
+		if (total == 0L)
+		{
+			return;
+		}
+
+		StringBuilder titleBuilder = new StringBuilder(" (");
+
+		if (config.showExact())
+		{
+			titleBuilder.append(QuantityFormatter.formatNumber(total));
+		}
+		else
+		{
+			titleBuilder.append(QuantityFormatter.quantityToStackSize(total));
+		}
+
+		titleBuilder.append(')');
+
+		// Append to title
+		String[] stringStack = client.getStringStack();
+		int stringStackSize = client.getStringStackSize();
+
+		stringStack[stringStackSize - 1] += titleBuilder.toString();
+	}
+
+	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		if (grandExchangeText == null || grandExchangeItem == null || grandExchangeItem.isHidden())
@@ -453,7 +497,7 @@ public class GrandExchangePlugin extends Plugin
 			// If we have item buy limit, append it
 			if (itemLimit != null)
 			{
-				final String text = geText.getText() + BUY_LIMIT_GE_TEXT + StackFormatter.formatNumber(itemLimit);
+				final String text = geText.getText() + BUY_LIMIT_GE_TEXT + QuantityFormatter.formatNumber(itemLimit);
 				geText.setText(text);
 			}
 		}
@@ -477,7 +521,7 @@ public class GrandExchangePlugin extends Plugin
 			try
 			{
 				final OSBGrandExchangeResult result = CLIENT.lookupItem(itemId);
-				final String text = geText.getText() + OSB_GE_TEXT + StackFormatter.formatNumber(result.getOverall_average());
+				final String text = geText.getText() + OSB_GE_TEXT + QuantityFormatter.formatNumber(result.getOverall_average());
 				geText.setText(text);
 			}
 			catch (IOException e)

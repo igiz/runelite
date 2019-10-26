@@ -63,10 +63,10 @@ public class DailyTasksPlugin extends Plugin
 	private static final String SAND_MESSAGE = "You have sand waiting to be collected from Bert.";
 	private static final int SAND_QUEST_COMPLETE = 160;
 	private static final String FLAX_MESSAGE = "You have bowstrings waiting to be converted from flax from the Flax keeper.";
+	private static final String ARROWS_MESSAGE = "You have ogre arrows waiting to be collected from Rantz.";
 	private static final String BONEMEAL_MESSAGE = "You have bonemeal and slime waiting to be collected from Robin.";
 	private static final int BONEMEAL_PER_DIARY = 13;
 	private static final String DYNAMITE_MESSAGE = "You have dynamite waiting to be collected from Thirus.";
-	private static final String RELOG_MESSAGE = " (May require a relog)";
 
 	@Inject
 	private Client client;
@@ -160,6 +160,10 @@ public class DailyTasksPlugin extends Plugin
 				checkDynamite(dailyReset);
 			}
 
+			if (config.showArrows())
+			{
+				checkArrows(dailyReset);
+			}
 		}
 	}
 
@@ -197,8 +201,8 @@ public class DailyTasksPlugin extends Plugin
 	private void checkRunes(boolean dailyReset)
 	{
 		if (client.getVar(Varbits.DIARY_WILDERNESS_EASY) == 1
-			&& (client.getVar(Varbits.DAILY_RUNES_COLLECTED) == 0)
-			|| dailyReset)
+			&& (client.getVar(Varbits.DAILY_RUNES_COLLECTED) == 0
+			|| dailyReset))
 		{
 			sendChatMessage(RUNES_MESSAGE);
 		}
@@ -221,6 +225,16 @@ public class DailyTasksPlugin extends Plugin
 			|| dailyReset))
 		{
 			sendChatMessage(FLAX_MESSAGE);
+		}
+	}
+
+	private void checkArrows(boolean dailyReset)
+	{
+		if (client.getVar(Varbits.DIARY_WESTERN_EASY) == 1
+			&& (client.getVar(Varbits.DAILY_ARROWS_STATE) == 0
+			|| dailyReset))
+		{
+			sendChatMessage(ARROWS_MESSAGE);
 		}
 	}
 
