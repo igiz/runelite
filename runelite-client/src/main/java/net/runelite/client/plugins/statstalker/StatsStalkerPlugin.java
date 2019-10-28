@@ -10,12 +10,12 @@ import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.interfaces.Repository;
+import net.runelite.client.plugins.statstalker.config.StatStalkerConfig;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.http.api.hiscore.*;
 import org.apache.commons.lang3.ArrayUtils;
 
 import javax.inject.Inject;
-import java.awt.*;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
 import java.time.Duration;
@@ -30,21 +30,6 @@ import java.util.concurrent.CompletableFuture;
         enabledByDefault = false
 )
 public class StatsStalkerPlugin extends Plugin {
-
-    class LevelTuple {
-
-        public final int currentLevel;
-
-        public final int opponentLevel;
-
-        public final int xpDifference;
-
-        public LevelTuple(int currentLevel, int opponentLevel, int xpDifference){
-            this.currentLevel = currentLevel;
-            this.opponentLevel = opponentLevel;
-            this.xpDifference = xpDifference;
-        }
-    }
 
     enum SkillsGroup {
         EQUAL,
@@ -150,18 +135,6 @@ public class StatsStalkerPlugin extends Plugin {
     @Override
     protected void startUp() throws Exception
     {
-        OverlayGroup group = new OverlayGroup(client);
-
-        higherOverlay.setGroup(group);
-        lowerOverlay.setGroup(group);
-        equalOverlay.setGroup(group);
-        changedSinceOverlay.setGroup(group);
-
-        higherOverlay.setColor(Color.GREEN);
-        lowerOverlay.setColor(Color.RED);
-        equalOverlay.setColor(Color.ORANGE);
-        changedSinceOverlay.setColor(Color.getHSBColor(329,98,37));
-
         higherOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.HIGHER));
         lowerOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.LOWER));
         equalOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.EQUAL));
@@ -171,10 +144,6 @@ public class StatsStalkerPlugin extends Plugin {
         lowerOverlay.setVisibilityToggle(() -> config.showLower());
         equalOverlay.setVisibilityToggle(() -> config.showEqual());
         changedSinceOverlay.setVisibilityToggle(() -> config.showChanged());
-
-        higherOverlay.setTitle("Higher Stats:");
-        lowerOverlay.setTitle("Lower Stats:");
-        equalOverlay.setTitle("Equal Stats:");
 
         overlayManager.add(higherOverlay);
         overlayManager.add(lowerOverlay);
@@ -246,7 +215,7 @@ public class StatsStalkerPlugin extends Plugin {
                 int currentLevel = client.getRealSkillLevel(current);
                 int opponentLevel = opponentsSkill.getLevel();
                 int xpDifference = Math.toIntExact(client.getSkillExperience(current) - opponentsSkill.getExperience());
-                LevelTuple levelTuple = new LevelTuple(currentLevel, opponentLevel, xpDifference);
+                LevelTuple levelTuple = new LevelTuple(current, currentLevel, opponentLevel, xpDifference);
 
                 if (currentLevel > opponentLevel) {
                     greaterSkills.put(current.getName(), levelTuple);
@@ -263,19 +232,22 @@ public class StatsStalkerPlugin extends Plugin {
     }
 
     private synchronized void calculateChanged() {
-        if(snapshot != null){
+        if (snapshot != null) {
             changedSinceSnapshot.clear();
             HiscoreSkill[] allSkills = HiscoreSkill.values();
-
-            for(int i=0;i<allSkills.length;i++){
+            for (int i = 0; i < allSkills.length; i++) {
                 HiscoreSkill skill = allSkills[i];
                 Skill current = result.getSkill(skill);
                 Skill before = snapshot.getSnapshot().getSkill(skill);
-
-                if(current.getExperience() > before.getExperience()){
-                    int xpDifference = Math.toIntExact(current.getExperience() - before.getExperience());
-                    LevelTuple levelTuple = new LevelTuple(before.getLevel(), current.getLevel(), xpDifference);
-                    changedSinceSnapshot.put(skill.getName(), levelTuple);
+                boolean canCompare = current != null && before != null;
+                if (canCompare && (current.getExperience() > before.getExperience())) {
+                    try {
+                        int xpDifference = Math.toIntExact(current.getExperience() - before.getExperience());
+                        LevelTuple levelTuple = new LevelTuple(net.runelite.api.Skill.valueOf(skill.getName()), before.getLevel(), current.getLevel(), xpDifference);
+                        changedSinceSnapshot.put(skill.getName(), levelTuple);
+                    } catch (IllegalArgumentException ex) {
+                        // Dp nothing we just can't compare this skill
+                    }
                 }
             }
         }
@@ -291,14 +263,13 @@ public class StatsStalkerPlugin extends Plugin {
         if(snapshot != null){
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
             String takenDate = sdf.format(new Date(snapshot.getTimeTaken()*1000L));
-            changedSinceOverlay.setTitle("Since "+ takenDate +"");
         }
     }
 
     private void takeSnapshot(){
         boolean haveResult = result != null;
         boolean saveSnapshot = config.takeSnapshots();
-        boolean expired = snapshot == null || snapshot.olderThan(config.snapshotInterval());
+        boolean expired = snapshot == null || snapshot.olderThan(config.snapshotInterval(), config.snapshotIntervalDuration());
         if(saveSnapshot &&  haveResult && expired){
             snapshot = new HiscoreResultSnapshot(result);
             snapshotRepository.save(snapshot, config.playerName());

@@ -1,9 +1,10 @@
-package net.runelite.client.plugins.statstalker;
+package net.runelite.client.plugins.statstalker.config;
 
 // Mandatory imports
 import net.runelite.client.config.Config;
 import net.runelite.client.config.ConfigGroup;
 import net.runelite.client.config.ConfigItem;
+import net.runelite.client.plugins.wintertodt.config.WintertodtNotifyMode;
 
 @ConfigGroup("statstalker")
 public interface StatStalkerConfig extends Config {
@@ -91,6 +92,17 @@ public interface StatStalkerConfig extends Config {
     default int snapshotInterval()
     {
         return 24;
+    }
+
+    @ConfigItem(
+            position = 9,
+            keyName = "snapshotIntervalDuration",
+            name = "Duration in",
+            description = "Configurations that snapshot interval duration to be in days/hours/minutes."
+    )
+    default SnapshotIntervalEnum snapshotIntervalDuration()
+    {
+        return SnapshotIntervalEnum.HOURS;
     }
 
 }

@@ -1,5 +1,6 @@
 package net.runelite.client.plugins.statstalker;
 
+import net.runelite.client.plugins.statstalker.config.SnapshotIntervalEnum;
 import net.runelite.http.api.hiscore.HiscoreResult;
 
 import java.time.Duration;
@@ -24,10 +25,26 @@ public class HiscoreResultSnapshot {
         return timeTaken;
     }
 
-    public boolean olderThan(int timeInHours){
+    public boolean olderThan(int interval, SnapshotIntervalEnum duration){
         Instant takenAt = Instant.ofEpochSecond(timeTaken);
         Instant timeNow = Instant.now();
-        Duration duration = Duration.between(takenAt, timeNow);
-        return duration.toHours() >= timeInHours;
+        Duration timePassed = Duration.between(takenAt, timeNow);
+
+        boolean result;
+        switch(duration) {
+            case DAYS:
+                result = timePassed.toDays() >= interval;
+                break;
+            case HOURS:
+                result = timePassed.toHours() >= interval;
+                break;
+            case MINUTES:
+                result = timePassed.toMinutes() >= interval;
+                break;
+            default:
+                result = false;
+        }
+
+        return result;
     }
 }
