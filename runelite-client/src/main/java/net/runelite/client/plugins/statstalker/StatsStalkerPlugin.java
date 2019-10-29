@@ -7,10 +7,14 @@ import net.runelite.api.events.ExperienceChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
+import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.plugins.interfaces.Repository;
 import net.runelite.client.plugins.statstalker.config.StatStalkerConfig;
+import net.runelite.client.plugins.statstalker.overlay.StatsStalkerOverlay;
+import net.runelite.client.plugins.statstalker.snapshots.HiscoreResultSnapshot;
+import net.runelite.client.plugins.statstalker.snapshots.JsonFileSnapshotRepository;
 import net.runelite.client.ui.overlay.OverlayManager;
 import net.runelite.http.api.hiscore.*;
 import org.apache.commons.lang3.ArrayUtils;
@@ -22,6 +26,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 @PluginDescriptor(
@@ -29,30 +34,11 @@ import java.util.concurrent.CompletableFuture;
         description = "Stalk other players statistics compared to yours.",
         enabledByDefault = false
 )
-public class StatsStalkerPlugin extends Plugin {
+public class StatsStalkerPlugin extends Plugin implements StatComparisonSnapshotService{
 
-    enum SkillsGroup {
-        EQUAL,
-        LOWER,
-        HIGHER,
-        CHANGED_SINCE_SNAPSHOT
-    }
+    //region Private Fields
 
-    interface DataProvider<K,V> {
-        HashMap<K,V> getData();
-    }
-
-    interface Toggle{
-        boolean isToggled();
-    }
-
-    private final HashMap<String,LevelTuple> greaterSkills;
-
-    private final HashMap<String,LevelTuple> lowerSkills;
-
-    private final HashMap<String,LevelTuple> equalSkills;
-
-    private final HashMap<String,LevelTuple> changedSinceSnapshot;
+    private final Map<HiscoreSkill, net.runelite.api.Skill> skillMap = generateSkillMap();
 
     private final HiscoreClient hiscoreClient = new HiscoreClient();
 
@@ -65,34 +51,33 @@ public class StatsStalkerPlugin extends Plugin {
     private Repository<HiscoreResultSnapshot> snapshotRepository;
 
     @Inject
+    private StatComparisonSnapshot statSnapshot;
+
+    @Inject
     private StatStalkerConfig config;
 
     @Inject
     private Client client;
 
     @Inject
-    private StatsStalkerOverlay higherOverlay;
-
-    @Inject
-    private StatsStalkerOverlay lowerOverlay;
-
-    @Inject
-    private StatsStalkerOverlay equalOverlay;
-
-    @Inject
-    private StatsStalkerOverlay changedSinceOverlay;
+    private SkillIconManager skillIconManager;
 
     @Inject
     private OverlayManager overlayManager;
 
-    public StatsStalkerPlugin(){
-        this.greaterSkills = new HashMap<>();
-        this.lowerSkills = new HashMap<>();
-        this.equalSkills = new HashMap<>();
-        this.changedSinceSnapshot = new HashMap<>();
+    @Inject
+    private StatsStalkerOverlay overlay;
 
+    //endregion
+
+    //region Public Constructors
+
+    @Inject
+    public StatsStalkerPlugin(){
         this.lastRefresh = Instant.MIN;
     }
+
+    //endregion
 
     @Provides
     StatStalkerConfig getConfig(ConfigManager configManager)
@@ -109,47 +94,10 @@ public class StatsStalkerPlugin extends Plugin {
         reload();
     }
 
-    public HashMap<String,LevelTuple> getSkillsGroup(SkillsGroup skillsGroup){
-        HashMap<String,LevelTuple> result = null;
-        switch(skillsGroup){
-            case EQUAL:
-                result = equalSkills;
-                break;
-            case HIGHER:
-                result = greaterSkills;
-                break;
-            case LOWER:
-                result = lowerSkills;
-                break;
-            case CHANGED_SINCE_SNAPSHOT:
-                result = changedSinceSnapshot;
-                break;
-        }
-        return result;
-    }
-
-    public boolean Visible(){
-        return result != null;
-    }
-
     @Override
     protected void startUp() throws Exception
     {
-        higherOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.HIGHER));
-        lowerOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.LOWER));
-        equalOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.EQUAL));
-        changedSinceOverlay.setDataProvider(() -> getSkillsGroup(SkillsGroup.CHANGED_SINCE_SNAPSHOT));
-
-        higherOverlay.setVisibilityToggle(() -> config.showHigher());
-        lowerOverlay.setVisibilityToggle(() -> config.showLower());
-        equalOverlay.setVisibilityToggle(() -> config.showEqual());
-        changedSinceOverlay.setVisibilityToggle(() -> config.showChanged());
-
-        overlayManager.add(higherOverlay);
-        overlayManager.add(lowerOverlay);
-        overlayManager.add(equalOverlay);
-        overlayManager.add(changedSinceOverlay);
-
+        overlayManager.add(overlay);
         snapshotRepository = new JsonFileSnapshotRepository();
         readSnapshot();
     }
@@ -157,10 +105,7 @@ public class StatsStalkerPlugin extends Plugin {
     @Override
     protected void shutDown() throws Exception
     {
-        overlayManager.remove(higherOverlay);
-        overlayManager.remove(lowerOverlay);
-        overlayManager.remove(equalOverlay);
-        overlayManager.remove(changedSinceOverlay);
+        overlayManager.remove(overlay);
     }
 
     @Subscribe
@@ -170,12 +115,14 @@ public class StatsStalkerPlugin extends Plugin {
 
     @Subscribe
     public void onGameTick(GameTick tick) {
-        Duration timeSinceInfobox = Duration.between(lastRefresh, Instant.now());
-        Duration statTimeout = Duration.ofMinutes(config.refreshInterval());
-        if (timeSinceInfobox.compareTo(statTimeout) >= 0) {
+        Duration timeSinceReload = Duration.between(lastRefresh, Instant.now());
+        Duration reloadInterval = Duration.ofMinutes(config.refreshInterval());
+        if (timeSinceReload.compareTo(reloadInterval) >= 0) {
             reload();
         }
     }
+
+    //region Reload Logic
 
     private void reload() {
 
@@ -186,26 +133,24 @@ public class StatsStalkerPlugin extends Plugin {
             } catch (IOException e) {
                 return null;
             }
-        }).thenAccept(hiscoreResult -> setResult(hiscoreResult))
+        }).thenAccept(hiscoreResult -> {this.result = hiscoreResult; takeSnapshot();})
                 .exceptionally(throwable ->
                         {
                             throwable.printStackTrace();
                             return null;
                         })
-                .thenRun(() -> resetComparison());
+                .thenRun(() -> {resetComparison(); calculateChanged();});
     }
 
-    private synchronized void setResult(HiscoreResult result){
-        this.result = result;
-        takeSnapshot();
-        calculateChanged();
-    }
+    //endregion
 
-    private synchronized void resetComparison() {
+    //region Stats Gathering
+
+    private void resetComparison() {
         if (result != null) {
-            lowerSkills.clear();
-            greaterSkills.clear();
-            equalSkills.clear();
+            HashMap<String, LevelComparisonTuple> greater = new HashMap<>();
+            HashMap<String, LevelComparisonTuple> lower = new HashMap<>();
+            HashMap<String, LevelComparisonTuple> equal = new HashMap<>();
 
             net.runelite.api.Skill[] allSkills = ArrayUtils.removeElement(net.runelite.api.Skill.values(), net.runelite.api.Skill.OVERALL);
             for (int i = 0; i < allSkills.length; i++) {
@@ -215,54 +160,63 @@ public class StatsStalkerPlugin extends Plugin {
                 int currentLevel = client.getRealSkillLevel(current);
                 int opponentLevel = opponentsSkill.getLevel();
                 int xpDifference = Math.toIntExact(client.getSkillExperience(current) - opponentsSkill.getExperience());
-                LevelTuple levelTuple = new LevelTuple(current, currentLevel, opponentLevel, xpDifference);
+                LevelComparisonTuple levelComparisonTuple = new LevelComparisonTuple(current, currentLevel, opponentLevel, xpDifference);
 
                 if (currentLevel > opponentLevel) {
-                    greaterSkills.put(current.getName(), levelTuple);
+                    greater.put(current.getName(), levelComparisonTuple);
                 } else if (currentLevel < opponentLevel) {
-                    lowerSkills.put(current.getName(), levelTuple);
+                    lower.put(current.getName(), levelComparisonTuple);
                 } else {
-                    equalSkills.put(current.getName(), levelTuple);
+                    equal.put(current.getName(), levelComparisonTuple);
                 }
             }
 
-            result.getSkill(HiscoreSkill.OVERALL);
+            long takenAt = Instant.now().getEpochSecond();
+
+            //Push all the data
+            statSnapshot.push(greater, SkillsGroup.HIGHER, takenAt);
+            statSnapshot.push(lower, SkillsGroup.LOWER, takenAt);
+            statSnapshot.push(equal, SkillsGroup.EQUAL, takenAt);
             lastRefresh = Instant.now();
         }
     }
 
-    private synchronized void calculateChanged() {
+    private void calculateChanged() {
         if (snapshot != null) {
-            changedSinceSnapshot.clear();
+            HashMap<String, LevelComparisonTuple> changedSince = new HashMap<>();
             HiscoreSkill[] allSkills = HiscoreSkill.values();
             for (int i = 0; i < allSkills.length; i++) {
                 HiscoreSkill skill = allSkills[i];
                 Skill current = result.getSkill(skill);
                 Skill before = snapshot.getSnapshot().getSkill(skill);
-                boolean canCompare = current != null && before != null;
+                boolean canCompare = current != null && before != null && skillMap.containsKey(skill);
                 if (canCompare && (current.getExperience() > before.getExperience())) {
                     try {
                         int xpDifference = Math.toIntExact(current.getExperience() - before.getExperience());
-                        LevelTuple levelTuple = new LevelTuple(net.runelite.api.Skill.valueOf(skill.getName()), before.getLevel(), current.getLevel(), xpDifference);
-                        changedSinceSnapshot.put(skill.getName(), levelTuple);
+                        net.runelite.api.Skill playerSkill = skillMap.get(skill);
+                        LevelComparisonTuple levelComparisonTuple = new LevelComparisonTuple(playerSkill, current.getLevel(), before.getLevel(), xpDifference);
+                        changedSince.put(playerSkill.getName(), levelComparisonTuple);
                     } catch (IllegalArgumentException ex) {
-                        // Dp nothing we just can't compare this skill
+                        // Do nothing we just can't compare this skill
                     }
                 }
             }
+            statSnapshot.push(changedSince, SkillsGroup.CHANGED_SINCE_SNAPSHOT, snapshot.getTimeTaken());
         }
     }
 
+    //endregion
+
+    //region Snapshot Management
+
     private void readSnapshot(){
-        changedSinceSnapshot.clear();
         snapshot = snapshotRepository.get(config.playerName());
         snapshotChanged();
     }
 
     private void snapshotChanged(){
-        if(snapshot != null){
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-            String takenDate = sdf.format(new Date(snapshot.getTimeTaken()*1000L));
+        if(snapshot != null && result != null){
+            calculateChanged();
         }
     }
 
@@ -276,4 +230,34 @@ public class StatsStalkerPlugin extends Plugin {
             snapshotChanged();
         }
     }
+
+    @Override
+    public HashMap<String, LevelComparisonTuple> getSnapshot(SkillsGroup group) {
+        return statSnapshot.getSkillsGroup(group);
+    }
+
+    @Override
+    public long getTimeTaken(SkillsGroup group) {
+        return statSnapshot.getTimeTaken(group);
+    }
+
+    //endregion
+
+    //region Other
+    private Map<HiscoreSkill,net.runelite.api.Skill> generateSkillMap() {
+        Map<HiscoreSkill,net.runelite.api.Skill> result = new HashMap<>();
+        HiscoreSkill[] allConstants = HiscoreSkill.class.getEnumConstants();
+        for(net.runelite.api.Skill playerSkill : net.runelite.api.Skill.class.getEnumConstants()){
+            for(HiscoreSkill hiscoreSkill : allConstants){
+                if(hiscoreSkill.getName().equals(playerSkill.getName())){
+                    result.put(hiscoreSkill, playerSkill);
+                    break;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    //endregion
 }

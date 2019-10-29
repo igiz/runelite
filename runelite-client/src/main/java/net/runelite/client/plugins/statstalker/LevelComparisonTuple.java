@@ -2,7 +2,7 @@ package net.runelite.client.plugins.statstalker;
 
 import net.runelite.api.Skill;
 
-class LevelTuple {
+public class LevelComparisonTuple {
 
     public final int currentLevel;
 
@@ -12,10 +12,10 @@ class LevelTuple {
 
     public final Skill skill;
 
-    public LevelTuple(Skill skill, int currentLevel, int opponentLevel, int xpDifference){
+    public LevelComparisonTuple(Skill skill, int currentLevel, int opponentLevel, int xpDifference){
         this.currentLevel = currentLevel;
         this.opponentLevel = opponentLevel;
         this.xpDifference = xpDifference;
         this.skill = skill;
-    }
+}
 }
