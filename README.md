@@ -6,12 +6,6 @@ So far this is the list of custom plugins compared to the original client:
 
 - **StatsStalker** - This plugin enables to track your progress vs your friends or another players on runescape. It displays a widget with level information compared to yours and shows the XP differences.
 
-* [cache](cache/src/main/java/net/runelite/cache) - Libraries used for reading/writing cache files, as well as the data in it
-* [http-api](http-api/src/main/java/net/runelite/http/api) - API for api.runelite.net
-* [http-service](http-service/src/main/java/net/runelite/http/service) - Service for api.runelite.net
-* [runelite-api](runelite-api/src/main/java/net/runelite/api) - RuneLite API, interfaces for accessing the client
-* [runelite-client](runelite-client/src/main/java/net/runelite/client) - Game client with plugins
-
 ## Usage
 
 Open the project in your IDE as a Maven project, build the root module and then run the RuneLite class in runelite-client.  
