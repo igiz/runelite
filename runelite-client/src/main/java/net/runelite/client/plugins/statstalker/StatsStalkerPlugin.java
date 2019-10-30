@@ -21,10 +21,8 @@ import org.apache.commons.lang3.ArrayUtils;
 
 import javax.inject.Inject;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -133,7 +131,7 @@ public class StatsStalkerPlugin extends Plugin implements StatComparisonSnapshot
             } catch (IOException e) {
                 return null;
             }
-        }).thenAccept(hiscoreResult -> {this.result = hiscoreResult; takeSnapshot();})
+        }).thenAccept(hiScoreResult -> {this.result = hiScoreResult; takeSnapshot();})
                 .exceptionally(throwable ->
                         {
                             throwable.printStackTrace();

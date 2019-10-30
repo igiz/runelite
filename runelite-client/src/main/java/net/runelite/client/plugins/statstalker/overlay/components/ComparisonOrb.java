@@ -3,9 +3,8 @@ package net.runelite.client.plugins.statstalker.overlay.components;
 import net.runelite.api.Skill;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.statstalker.LevelComparisonTuple;
-import net.runelite.client.plugins.statstalker.overlay.FontEnlarger;
+import net.runelite.client.plugins.statstalker.overlay.FontModifier;
 import net.runelite.client.ui.overlay.Overlay;
-import net.runelite.client.ui.overlay.components.PanelComponent;
 
 import java.awt.*;
 import java.awt.geom.Arc2D;
@@ -30,7 +29,7 @@ public class ComparisonOrb extends Overlay {
 
     @Override
     public Dimension render(Graphics2D graphics) {
-        FontEnlarger fontEnlarger = new FontEnlarger(graphics,1.2F, true);
+        FontModifier fontModifier = new FontModifier(graphics,1.2F, true);
         try{
 
             int innerOrbSize = OuterOrbSize - InnerOrbSmallerBy;
@@ -62,7 +61,7 @@ public class ComparisonOrb extends Overlay {
             Dimension result = new Dimension(OuterOrbSize+Padding+25, OuterOrbSize+Padding);
             return result;
         } finally {
-            fontEnlarger.reset(graphics);
+            fontModifier.reset(graphics);
         }
     }
 

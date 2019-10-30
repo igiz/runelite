@@ -2,13 +2,13 @@ package net.runelite.client.plugins.statstalker.overlay;
 
 import java.awt.*;
 
-public class FontEnlarger {
+public class FontModifier {
 
     private Font initial;
     private Color initialColor;
-    private FontMetrics metrics ;
+    private FontMetrics metrics;
 
-    public FontEnlarger(Graphics2D graphics, float enlargeBy, boolean bold){
+    public FontModifier(Graphics2D graphics, float enlargeBy, boolean bold){
         initial = graphics.getFont();
         initialColor = graphics.getColor();
         Font newFont = initial.deriveFont(initial.getSize() * enlargeBy);
@@ -16,7 +16,7 @@ public class FontEnlarger {
         metrics = graphics.getFontMetrics(newFont);
     }
 
-    public FontEnlarger(Graphics2D graphics, Color color, float enlargeBy, boolean bold){
+    public FontModifier(Graphics2D graphics, Color color, float enlargeBy, boolean bold){
         this(graphics, enlargeBy, bold);
         graphics.setColor(color);
     }
