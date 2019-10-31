@@ -5,10 +5,13 @@ import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.statstalker.LevelComparisonTuple;
 import net.runelite.client.plugins.statstalker.overlay.FontModifier;
 import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.components.LineComponent;
+import net.runelite.client.ui.overlay.components.PanelComponent;
 
 import java.awt.*;
 import java.awt.geom.Arc2D;
 import java.awt.image.BufferedImage;
+import java.text.DecimalFormat;
 
 public class ComparisonOrb extends Overlay {
 
@@ -20,55 +23,83 @@ public class ComparisonOrb extends Overlay {
     private final SkillIconManager iconManager;
     private final LevelComparisonTuple comparisonTuple;
     private final Dimension startPosition;
+    private final Dimension size;
 
     public ComparisonOrb(SkillIconManager iconManager, LevelComparisonTuple comparisonTuple, Dimension startPosition){
         this.iconManager = iconManager;
         this.comparisonTuple = comparisonTuple;
         this.startPosition = startPosition;
+        this.size = new Dimension(OuterOrbSize + Padding + 25, OuterOrbSize + Padding);
     }
 
     @Override
     public Dimension render(Graphics2D graphics) {
-        FontModifier fontModifier = new FontModifier(graphics,1.2F, true);
-        try{
+        int innerOrbSize = OuterOrbSize - InnerOrbSmallerBy;
+        int pad = InnerOrbSmallerBy / 2;
 
-            int innerOrbSize = OuterOrbSize - InnerOrbSmallerBy;
-            int pad = InnerOrbSmallerBy / 2;
+        double currentLevel = levelBasedRadius(comparisonTuple.currentLevel);
+        double opponentLevel = levelBasedRadius(comparisonTuple.opponentLevel);
 
-            double currentLevel = levelBasedRadius(comparisonTuple.currentLevel);
-            double opponentLevel = levelBasedRadius(comparisonTuple.opponentLevel);
+        int x = startPosition.width + (Padding / 2);
+        int y = startPosition.height + (Padding / 2);
 
-            int x = startPosition.width + (Padding/2);
-            int y = startPosition.height + (Padding/2);
+        //Draw the various graphic components
+        drawLevelArc(graphics, x, y, OuterOrbSize, OuterOrbSize, currentLevel, Color.GREEN);
+        drawLevelArc(graphics, x + pad, y + pad, innerOrbSize, innerOrbSize, opponentLevel, Color.RED);
+        drawSkillImage(graphics, x, y, comparisonTuple.skill, OuterOrbSize);
+        drawLevelString(graphics, x, y);
 
-            drawLevelArc(graphics, x, y , OuterOrbSize, OuterOrbSize, currentLevel, Color.GREEN);
-            drawLevelArc(graphics, x+pad, y+pad , innerOrbSize, innerOrbSize, opponentLevel, Color.RED);
+        return size;
+    }
 
-            int difference = Math.round(comparisonTuple.currentLevel - comparisonTuple.opponentLevel);
-            String differenceStr = Integer.toString(difference);
+    public void renderTooltip(Graphics2D graphics, java.awt.Point mousePosition) {
+        PanelComponent tooltip = new PanelComponent();
+        tooltip.setBackgroundColor(new Color(0,0,0,0));
+        tooltip.setPreferredLocation(new Point(mousePosition.x, mousePosition.y + 10));
+        tooltip.setBackgroundColor(Color.BLACK);
 
-            if(difference > 0){
-                differenceStr = "+"+differenceStr;
-                graphics.setColor(Color.GREEN);
-            } else if( difference == 0) {
-                graphics.setColor(Color.ORANGE);
-            } else {
-                graphics.setColor(Color.RED);
-            }
+        tooltip.getChildren().add(LineComponent.builder()
+                .left("Level:\n" + comparisonTuple.opponentLevel)
+                .leftColor(Color.RED)
+                .right("Level:\n" + comparisonTuple.currentLevel)
+                .rightColor(Color.GREEN)
+                .build());
 
-            graphics.drawString(differenceStr, x+OuterOrbSize, y+OuterOrbSize);
-            drawSkillImage(graphics , x, y , comparisonTuple.skill, OuterOrbSize);
-            Dimension result = new Dimension(OuterOrbSize+Padding+25, OuterOrbSize+Padding);
-            return result;
-        } finally {
-            fontModifier.reset(graphics);
-        }
+        DecimalFormat decimalFormat = new DecimalFormat("###,###,###");
+        tooltip.getChildren().add(LineComponent.builder()
+                .left("XP Difference:\n" + decimalFormat.format(comparisonTuple.xpDifference))
+                .leftColor(Color.WHITE)
+                .build()
+        );
+
+        FontModifier modifier = new FontModifier(graphics, 1.2F, true);
+        tooltip.render(graphics);
+        modifier.reset(graphics);
     }
 
     private double levelBasedRadius(double level){
         double percentage = (level / 99)*100;
         double result = 3.6 * percentage;
         return result;
+    }
+
+
+    private void drawLevelString(Graphics2D graphics, int x, int y){
+        int difference = Math.round(comparisonTuple.currentLevel - comparisonTuple.opponentLevel);
+        String differenceStr = Integer.toString(difference);
+
+        if (difference > 0) {
+            differenceStr = "+" + differenceStr;
+            graphics.setColor(Color.GREEN);
+        } else if (difference == 0) {
+            graphics.setColor(Color.ORANGE);
+        } else {
+            graphics.setColor(Color.RED);
+        }
+
+        FontModifier fontModifier = new FontModifier(graphics,1.2F, true);
+        graphics.drawString(differenceStr, x + OuterOrbSize, y + OuterOrbSize);
+        fontModifier.reset(graphics);
     }
 
     private void drawLevelArc(Graphics2D graphics, int x, int y, int w, int h, double radiusEnd, Color color)

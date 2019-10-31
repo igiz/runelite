@@ -1,5 +1,6 @@
 package net.runelite.client.plugins.statstalker.overlay;
 
+import net.runelite.api.Client;
 import net.runelite.client.game.SkillIconManager;
 import net.runelite.client.plugins.statstalker.LevelComparisonTuple;
 import net.runelite.client.plugins.statstalker.SkillsGroup;
@@ -26,12 +27,13 @@ public class StatsStalkerOverlay extends Overlay {
     private final StatComparisonSnapshotService snapshotService;
     private final StatStalkerConfig config;
     private final SkillIconManager skillIconManager;
+    private final Client client;
     private final int TextPadding = 20;
 
     @Inject
-    public StatsStalkerOverlay(StatsStalkerPlugin plugin, StatStalkerConfig config, SkillIconManager skillIconManager) {
+    public StatsStalkerOverlay(Client client, StatsStalkerPlugin plugin, StatStalkerConfig config, SkillIconManager skillIconManager) {
         super(plugin);
-
+        this.client = client;
         this.skillIconManager = skillIconManager;
         this.snapshotService = plugin;
         this.config = config;
@@ -43,18 +45,42 @@ public class StatsStalkerOverlay extends Overlay {
     public Dimension render(Graphics2D graphics) {
         ArrayList<SkillsGroup> groupsToRender = getGroupsToDisplay();
         Dimension currentDimension = new Dimension();
+        Point mousePosition = getMousePosition();
+        ComparisonOrb activeOrb = null;
 
         for(SkillsGroup group : groupsToRender){
             HashMap<String, LevelComparisonTuple> data = snapshotService.getSnapshot(group);
             addTitles(group, graphics, currentDimension);
             for (Map.Entry<String, LevelComparisonTuple> entry : data.entrySet()) {
                 LevelComparisonTuple comparisonTuple = entry.getValue();
-                Dimension childDimension = new ComparisonOrb(skillIconManager, comparisonTuple, new Dimension(0, currentDimension.height)).render(graphics);
-                append(currentDimension, childDimension);
+                Dimension drawStartPosition = new Dimension(0, currentDimension.height);
+                ComparisonOrb orb = new ComparisonOrb(skillIconManager, comparisonTuple, drawStartPosition);
+                Dimension orbSize = orb.render(graphics);
+                if(checkInBounds(drawStartPosition, orbSize , mousePosition)){
+                    activeOrb = orb;
+                }
+                append(currentDimension, orbSize);
             }
         }
 
+        //Draw tooltip about the active orb
+        if(activeOrb != null){
+            activeOrb.renderTooltip(graphics, mousePosition);
+        }
+
         return currentDimension;
+    }
+
+    private boolean checkInBounds(Dimension startPosition, Dimension size, java.awt.Point position){
+        Rectangle graphicBounds = new Rectangle(startPosition.width, startPosition.height, size.width, size.height);
+        return graphicBounds.contains(position);
+    }
+
+    private Point getMousePosition() {
+        //Get the mouse position in the overlay relative to the bounds.
+        Rectangle currentPosition = this.getBounds();
+        Point mousePosition = new Point(client.getMouseCanvasPosition().getX()-currentPosition.x, client.getMouseCanvasPosition().getY()-currentPosition.y);
+        return mousePosition;
     }
 
     private void addTitles(SkillsGroup group, Graphics2D graphics, Dimension currentDimension){
